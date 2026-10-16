@@ -1,0 +1,205 @@
+{
+  "name": "AI message classifier and summarizer",
+  "nodes": [
+    {
+      "id": "1ad806f9-7e67-5d87-a5d3-5bdef8eedcc0",
+      "name": "Message Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "classify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "3c9d4e1b-ai-classify-demo"
+    },
+    {
+      "id": "3d1dbf4f-abe5-5bfa-9668-a11e6a398e2f",
+      "name": "Prepare Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const text = String(($input.first().json.body || {}).text || '').trim();\nreturn [{ json: { text, valid: text.length > 0 && text.length <= 8000 } }];"
+      }
+    },
+    {
+      "id": "f158454b-b46d-5df4-8802-417f857c1f0c",
+      "name": "Has Text?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.valid }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "55db1d3b-899b-51c6-a76a-1e28eae1c1e9",
+      "name": "Call LLM (OpenAI-compatible)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'Classify the customer message. Reply ONLY with JSON: {\"category\": one of sales|support|billing|spam|other, \"urgency\": low|normal|high, \"summary\": one sentence}.' }, { role: 'user', content: $json.text } ] }) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "llmApiKey01",
+          "name": "LLM API key (placeholder)"
+        }
+      }
+    },
+    {
+      "id": "7703e72e-5c88-5fc1-a132-41fd4e2dc75f",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Parse the model reply; fall back safely if it is not valid JSON\nconst r = $input.first().json;\nif (r.statusCode !== 200) return [{ json: { ok: false, error: `LLM API returned ${r.statusCode}` } }];\nlet out;\ntry { out = JSON.parse(r.body.choices[0].message.content); } catch (e) { return [{ json: { ok: false, error: 'Model reply was not valid JSON' } }]; }\nconst allowed = ['sales', 'support', 'billing', 'spam', 'other'];\nreturn [{ json: { ok: true, category: allowed.includes(out.category) ? out.category : 'other', urgency: out.urgency || 'normal', summary: out.summary || '' } }];"
+      }
+    },
+    {
+      "id": "28f8b796-5558-5d8b-ad27-bbb2d676d804",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "4f2b47cf-7c75-5861-86ec-15db8fc841d5",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: 'text is required (max 8000 chars)' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Message Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Text": {
+      "main": [
+        [
+          {
+            "node": "Has Text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Text?": {
+      "main": [
+        [
+          {
+            "node": "Call LLM (OpenAI-compatible)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM (OpenAI-compatible)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

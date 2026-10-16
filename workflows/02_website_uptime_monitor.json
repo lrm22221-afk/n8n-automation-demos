@@ -1,0 +1,223 @@
+{
+  "name": "Website uptime monitor with alert",
+  "nodes": [
+    {
+      "id": "1fdb6fe3-6d48-5ec1-af16-9cf3c850a55f",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "72301df2-c87e-5e05-a662-f080c4dcbeda",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "af85bf37-40b7-5947-85b6-e77c2ada5570",
+      "name": "Sites to Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Edit this list: the sites to monitor\nconst sites = ['https://example.com', 'https://www.saucedemo.com', 'https://this-site-does-not-exist.invalid'];\nreturn sites.map(url => ({ json: { url } }));"
+      }
+    },
+    {
+      "id": "cd780e11-052f-5108-b4e8-af7b1500f5e9",
+      "name": "Check Site",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "dc8838db-c5b7-5d75-8812-33eee6af177e",
+      "name": "Evaluate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Mark each site UP/DOWN and build one summary\nconst urls = $('Sites to Check').all().map(i => i.json.url);\nconst results = $input.all().map((i, idx) => {\n  const status = i.json.statusCode ?? 0;\n  return { url: urls[idx], status, up: status >= 200 && status < 400 };\n});\nconst down = results.filter(r => !r.up);\nreturn [{ json: { checkedAt: new Date().toISOString(), total: results.length, downCount: down.length, hasDown: down.length > 0, results,\n  alertText: down.map(d => `DOWN: ${d.url} (status ${d.status || 'no response'})`).join('\\n') } }];"
+      }
+    },
+    {
+      "id": "ed5c025b-240f-566d-a0b0-f41ca3840b5c",
+      "name": "Any Site Down?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hasDown }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a610666f-4020-5594-b2a6-d691003e8cc0",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.alertText }) }}"
+      }
+    },
+    {
+      "id": "9f9a3f6c-afd6-586e-b594-da9def4cea09",
+      "name": "All OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        420
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Sites to Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Sites to Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sites to Check": {
+      "main": [
+        [
+          {
+            "node": "Check Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Site": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Results": {
+      "main": [
+        [
+          {
+            "node": "Any Site Down?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Site Down?": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "All OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
