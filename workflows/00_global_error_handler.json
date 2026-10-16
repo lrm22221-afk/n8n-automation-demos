@@ -1,0 +1,80 @@
+{
+  "name": "00 Global Error Handler",
+  "nodes": [
+    {
+      "id": "d70757c9-6d54-4e6b-8468-ce0067694f02",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5a1791e1-bd03-4c0b-a311-b53f968cd6f8",
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Build a readable alert from the n8n Error Trigger payload\nconst e = $input.first().json;\nconst wf = (e.workflow && e.workflow.name) || 'unknown workflow';\nconst ex = e.execution || {};\nconst err = ex.error || {};\nconst node = ex.lastNodeExecuted || (err.node && err.node.name) || 'unknown node';\nconst text = [\n  `:rotating_light: n8n workflow failed: ${wf}`,\n  `Node: ${node}`,\n  `Error: ${err.message || 'no message'}`,\n  ex.url ? `Execution: ${ex.url}` : null,\n  `Mode: ${ex.mode || 'n/a'}`,\n].filter(Boolean).join('\\n');\nreturn [{ json: { text, workflow: wf, node, message: err.message || '', executionId: ex.id || null } }];"
+      }
+    },
+    {
+      "id": "812065bd-c269-4909-b71b-e98cc662f5f3",
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
